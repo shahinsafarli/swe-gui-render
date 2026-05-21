@@ -109,28 +109,95 @@ def _inject_theme() -> None:
             --em-shadow-lg:    0 8px 40px rgba(30,45,39,0.13);
         }
 
+        /* Base App Overrides */
         .stApp {
             background:
                 radial-gradient(ellipse 80% 60% at 10% 0%, rgba(86,163,121,0.08) 0%, transparent 60%),
                 radial-gradient(ellipse 60% 50% at 90% 100%, rgba(184,164,212,0.08) 0%, transparent 55%),
-                linear-gradient(165deg, #faf8f5 0%, #f3f8f4 40%, #f8f3fa 75%, #faf8f5 100%);
+                linear-gradient(165deg, #faf8f5 0%, #f3f8f4 40%, #f8f3fa 75%, #faf8f5 100%) !important;
             min-height: 100vh;
         }
 
         [data-testid="stSidebar"] {
-            background: linear-gradient(170deg, #f5f0e8 0%, #e8f3ec 60%, #ede8f3 100%);
+            background: linear-gradient(170deg, #f5f0e8 0%, #e8f3ec 60%, #ede8f3 100%) !important;
             border-right: 1px solid var(--em-border);
         }
 
+        /* Typography fixes */
         h1, h2, h3 {
             font-family: 'Fraunces', Georgia, serif !important;
             color: var(--em-green-dark) !important;
         }
-        p, label, .stMarkdown p {
+        p, label, .stMarkdown p, [data-testid="stWidgetLabel"] p {
             font-family: 'DM Sans', system-ui, sans-serif !important;
-            color: #1e2d27;
+            color: var(--em-ink) !important;
         }
 
+        /* --- STREAMLIT COMPONENT FIXES (Fixes black fields & broken text) --- */
+        
+        /* Selectboxes / Dropdowns */
+        [data-baseweb="select"] > div {
+            background-color: var(--em-cream) !important;
+            border: 1.5px solid var(--em-border) !important;
+            border-radius: var(--em-radius-sm) !important;
+        }
+        [data-baseweb="select"] * {
+            color: var(--em-ink) !important;
+            font-family: 'DM Sans', sans-serif !important;
+        }
+        
+        /* Text Area / Text Input Box */
+        .stTextArea textarea {
+            background-color: var(--em-cream) !important;
+            color: var(--em-ink) !important;
+            border: 1.5px solid var(--em-border) !important;
+            border-radius: var(--em-radius-sm) !important;
+            font-family: 'DM Sans', sans-serif !important;
+        }
+        .stTextArea textarea:focus {
+            border-color: var(--em-green-light) !important;
+            box-shadow: 0 0 0 3px var(--em-green-glow) !important;
+        }
+
+        /* MultiSelect Pills */
+        [data-baseweb="tag"] {
+            background-color: rgba(61,122,90,0.12) !important;
+            border: 1px solid rgba(61,122,90,0.2) !important;
+            color: var(--em-green-dark) !important;
+            border-radius: 999px !important;
+        }
+        [data-baseweb="tag"] span {
+            color: var(--em-green-dark) !important;
+        }
+
+        /* Fix buttons in Sidebar and Main Screen */
+        .stButton > button {
+            font-family: 'DM Sans', sans-serif !important;
+            border-radius: 12px !important;
+            transition: all 0.2s ease;
+        }
+        .stButton > button[kind="primary"] {
+            background: linear-gradient(135deg, var(--em-green-dark) 0%, var(--em-green) 60%, var(--em-green-light) 100%) !important;
+            border: none !important;
+            color: #ffffff !important;
+            box-shadow: 0 4px 14px rgba(61,122,90,0.35) !important;
+        }
+        .stButton > button[kind="primary"]:hover {
+            box-shadow: 0 6px 20px rgba(61,122,90,0.5) !important;
+            transform: translateY(-1px);
+        }
+        .stButton > button[kind="secondary"] {
+            background-color: rgba(255, 255, 255, 0.7) !important;
+            color: var(--em-green-dark) !important;
+            border: 1px solid var(--em-border) !important;
+        }
+        .stButton > button[kind="secondary"]:hover {
+            background-color: var(--em-cream2) !important;
+            border-color: var(--em-green-light) !important;
+        }
+
+        /* --- CUSTOM RENDERED BLOCKS --- */
+        
         /* Hero */
         .em-hero {
             display: flex;
@@ -155,7 +222,7 @@ def _inject_theme() -> None:
             background-clip: text;
         }
         .em-tagline {
-            color: var(--em-muted);
+            color: var(--em-muted) !important;
             font-size: 1.05rem;
             margin: 0;
             line-height: 1.55;
@@ -191,7 +258,7 @@ def _inject_theme() -> None:
             font-family: 'Fraunces', Georgia, serif !important;
             font-size: 0.85rem;
             font-weight: 600;
-            color: var(--em-muted);
+            color: var(--em-muted) !important;
             letter-spacing: 0.05em;
             text-transform: uppercase;
         }
@@ -260,7 +327,7 @@ def _inject_theme() -> None:
             margin-top: 0.75rem;
         }
 
-        /* History meta row (inside expanders) */
+        /* History meta row */
         .em-history-meta {
             display: flex;
             align-items: center;
@@ -282,7 +349,7 @@ def _inject_theme() -> None:
         .em-empty .em-empty-icon { font-size: 3rem; margin-bottom: 0.75rem; }
         .em-empty p { font-size: 0.95rem; line-height: 1.6; }
 
-        /* Sidebar helpers */
+        /* Sidebar info key-values */
         .em-sidebar-section {
             font-family: 'Fraunces', Georgia, serif !important;
             font-size: 0.85rem;
@@ -317,7 +384,7 @@ def _inject_theme() -> None:
         .em-dot-ok  { background: var(--em-green-light); }
         .em-dot-off { background: var(--em-amber); }
 
-        /* Tabs */
+        /* Tabs layout tracking */
         .stTabs [data-baseweb="tab-list"] {
             gap: 6px;
             background: transparent;
@@ -330,8 +397,6 @@ def _inject_theme() -> None:
             font-size: 0.9rem;
             color: var(--em-muted);
             background: transparent;
-            border: 1px solid transparent;
-            border-bottom: none;
             margin-bottom: -2px;
         }
         .stTabs [aria-selected="true"] {
@@ -341,52 +406,6 @@ def _inject_theme() -> None:
             border-bottom: 2px solid var(--em-paper) !important;
         }
 
-        /* Primary button */
-        .stButton > button[kind="primary"] {
-            background: linear-gradient(135deg, var(--em-green-dark) 0%, var(--em-green) 60%, var(--em-green-light) 100%) !important;
-            border: none !important;
-            border-radius: 12px !important;
-            font-weight: 700 !important;
-            box-shadow: 0 4px 14px rgba(61,122,90,0.35) !important;
-            color: #fff !important;
-        }
-        .stButton > button[kind="primary"]:hover {
-            box-shadow: 0 6px 20px rgba(61,122,90,0.5) !important;
-        }
-        [data-testid="stSidebar"] .stButton > button {
-            border-radius: 10px !important;
-            border: 1px solid var(--em-border) !important;
-            color: var(--em-green-dark) !important;
-        }
-
-        /* Inputs */
-        .stTextArea textarea {
-            border-radius: var(--em-radius-sm) !important;
-            border: 1.5px solid var(--em-border) !important;
-            background: var(--em-cream) !important;
-            font-size: 0.98rem !important;
-            padding: 0.85rem 1rem !important;
-        }
-        .stTextArea textarea:focus {
-            border-color: var(--em-green-light) !important;
-            box-shadow: 0 0 0 3px var(--em-green-glow) !important;
-        }
-        .stMultiSelect > div > div {
-            border-radius: var(--em-radius-sm) !important;
-            border: 1.5px solid var(--em-border) !important;
-            background: var(--em-cream) !important;
-        }
-        [data-baseweb="tag"] {
-            border-radius: 999px !important;
-            background: rgba(61,122,90,0.12) !important;
-            border: 1px solid rgba(61,122,90,0.2) !important;
-            color: var(--em-green-dark) !important;
-        }
-
-        /* ------------------------------------------------------------------ */
-        /* Expander — ONLY target the text paragraph inside the header,        */
-        /* NOT div/span/svg which would corrupt the arrow icon glyph           */
-        /* ------------------------------------------------------------------ */
         [data-testid="stExpander"] summary p,
         .streamlit-expanderHeader p {
             font-family: 'DM Sans', system-ui, sans-serif !important;
@@ -399,22 +418,17 @@ def _inject_theme() -> None:
         #MainMenu { visibility: hidden; }
         footer    { visibility: hidden; }
 
-        /* ── Keep the header/toolbar visible but minimal ──────────────────── */
-        /* We need it visible because it hosts the sidebar collapse button     */
         header[data-testid="stHeader"] {
             background: transparent !important;
             height: 3.2rem !important;
         }
-        /* Hide everything in the toolbar EXCEPT the sidebar toggle button */
         [data-testid="stToolbar"] {
             display: flex !important;
             background: transparent !important;
         }
-        /* Hide the deploy/share/star buttons — keep only the first button (sidebar toggle) */
         [data-testid="stToolbar"] > *:not(:first-child) { display: none !important; }
         [data-testid="stToolbarActions"]                 { display: none !important; }
 
-        /* Style the sidebar toggle button nicely */
         [data-testid="collapsedControl"],
         button[kind="header"] {
             width: 38px !important;
@@ -433,7 +447,6 @@ def _inject_theme() -> None:
             transform: scale(1.07) !important;
         }
 
-        /* Smooth sidebar open/close */
         [data-testid="stSidebar"] {
             transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1) !important;
         }
@@ -441,8 +454,6 @@ def _inject_theme() -> None:
         """,
         unsafe_allow_html=True,
     )
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -676,7 +687,6 @@ def _render_ask_tab() -> None:
             </div>"""
         st.markdown(citations_html, unsafe_allow_html=True)
 
-    # FIX: expander label-larında # işarəsi istifadə etmirik (Markdown heading problemi)
     with st.expander("Sources used", expanded=False):
         for s in result.sources_used:
             st.markdown(
@@ -777,47 +787,39 @@ def _render_history_tab() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Swipe-to-toggle sidebar (injected via components.html into parent frame)
+# Swipe-to-toggle sidebar
 # ---------------------------------------------------------------------------
 def _inject_swipe_js() -> None:
-    """
-    Uses streamlit.components.v1.html so the script runs in the TOP-LEVEL
-    document (not inside a sandboxed st.markdown iframe), giving real access
-    to the Streamlit sidebar DOM and the native collapse button.
-    """
     components.html(
         """
         <script>
         (function() {
             var doc = window.parent.document;
 
-            /* ── Find Streamlit's native sidebar toggle button ───────────── */
             function getNativeBtn() {
                 return doc.querySelector('[data-testid="collapsedControl"]')
                     || doc.querySelector('button[kind="header"]')
                     || doc.querySelector('header button');
             }
 
-            /* ── Is the sidebar currently open? ─────────────────────────── */
+            if (!getNativeBtn()) return;
+
             function isOpen() {
                 var sb = doc.querySelector('[data-testid="stSidebar"]');
                 if (!sb) return true;
-                /* Streamlit adds/removes a CSS translate when collapsing */
                 var style = window.parent.getComputedStyle(sb);
                 var tx = new DOMMatrix(style.transform).m41;
-                return tx > -100; /* collapsed = large negative translate */
+                return tx > -100;
             }
 
-            /* ── Click the native button to open/close ───────────────────── */
             function toggle() {
                 var btn = getNativeBtn();
                 if (btn) { btn.click(); }
             }
 
-            /* ── Swipe detection on the parent document ──────────────────── */
             var touchStartX = 0, touchStartY = 0;
-            var SWIPE_MIN   = 55;   /* px */
-            var ANGLE_MAX   = 40;   /* degrees off horizontal */
+            var SWIPE_MIN   = 55;   
+            var ANGLE_MAX   = 40;   
 
             doc.addEventListener('touchstart', function(e) {
                 touchStartX = e.touches[0].clientX;
@@ -828,10 +830,10 @@ def _inject_swipe_js() -> None:
                 var dx    = e.changedTouches[0].clientX - touchStartX;
                 var dy    = e.changedTouches[0].clientY - touchStartY;
                 var angle = Math.abs(Math.atan2(dy, dx) * 180 / Math.PI);
-                if (angle > ANGLE_MAX && angle < 180 - ANGLE_MAX) return; /* too vertical */
+                if (angle > ANGLE_MAX && angle < 180 - ANGLE_MAX) return; 
                 if (Math.abs(dx) < SWIPE_MIN) return;
-                if (dx > 0 && !isOpen()) toggle();  /* swipe right → open  */
-                if (dx < 0 &&  isOpen()) toggle();  /* swipe left  → close */
+                if (dx > 0 && !isOpen()) toggle();  
+                if (dx < 0 &&  isOpen()) toggle();  
             }, { passive: true });
         })();
         </script>
