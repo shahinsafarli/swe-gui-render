@@ -1,0 +1,42 @@
+# render.yaml — Render Blueprint
+# Deploys: PostgreSQL + Streamlit web service
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: swe-gui-streamlit
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # Render injects PORT automatically; Dockerfile CMD uses it
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: swe-gui-db
+          property: connectionString
+      # --- Pick ONE provider block, set the key in Render dashboard ---
+      - key: LLM_PROVIDER
+        value: gemini          # or: anthropic / openai
+      - key: LLM_MODEL
+        value: gemini-2.0-flash
+      - key: GOOGLE_API_KEY
+        sync: false            # fill in Render dashboard (secret)
+      # Uncomment if using Anthropic:
+      # - key: LLM_PROVIDER
+      #   value: anthropic
+      # - key: LLM_MODEL
+      #   value: claude-sonnet-4-6
+      # - key: ANTHROPIC_API_KEY
+      #   sync: false
+      # Uncomment if using OpenAI:
+      # - key: LLM_PROVIDER
+      #   value: openai
+      # - key: LLM_MODEL
+      #   value: gpt-4o-mini
+      # - key: OPENAI_API_KEY
+      #   sync: false
+
+databases:
+  - name: swe-gui-db
+    databaseName: researcher
+    user: researcher_user
+    plan: free               # upgrade to starter for prod

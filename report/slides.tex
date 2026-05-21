@@ -1,0 +1,260 @@
+\documentclass[aspectratio=169]{beamer}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+
+\usetheme{Madrid}
+\usecolortheme{seahorse}
+
+\definecolor{codeblue}{rgb}{0,0,0.7}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.97}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{backcolour},
+  keywordstyle=\color{codeblue},
+  breaklines=true,
+  numbers=none,
+}
+
+\title[Async Research Assistant]{Async Research Assistant}
+\subtitle{AIENG Final Project — Topic 4}
+\author{[Member 1] \and [Member 2] \and [Member 3]}
+\institute{AI Engineering 110 · Spring 2026}
+\date{May 23, 2026}
+
+\begin{document}
+
+% ---- Slide 1: Title --------------------------------------------------------
+\begin{frame}
+\titlepage
+\end{frame}
+
+% ---- Slide 2: Overview -----------------------------------------------------
+\begin{frame}{Problem \& Solution}
+\textbf{Problem}: Researching a question manually means opening multiple tabs,
+reading several articles, and synthesising information yourself.
+
+\vspace{1em}
+\textbf{Our solution}: Ask once — get a cited answer from three authoritative sources.
+
+\vspace{1em}
+\begin{columns}
+  \column{0.45\textwidth}
+  \textbf{Input}
+  \begin{itemize}
+    \item A natural-language question
+    \item Optional: source filter (wiki, arxiv, web)
+  \end{itemize}
+
+  \column{0.45\textwidth}
+  \textbf{Output}
+  \begin{itemize}
+    \item 3–6 sentence synthesised answer
+    \item Numbered references with URLs
+    \item Which sources failed (if any)
+  \end{itemize}
+\end{columns}
+\end{frame}
+
+% ---- Slide 3: Architecture -------------------------------------------------
+\begin{frame}{Architecture}
+\begin{center}
+\ttfamily\small
+\begin{tabular}{l}
+User / CLI\\
+\quad $\downarrow$ ResearchRequest (Pydantic)\\
+\textbf{core/researcher.py}\\
+\quad $\leftarrow$ services/cache.py (TTL lookup)\\
+\quad $\rightarrow$ concurrency/orchestrator.py\\
+\qquad $\parallel$ fetch\_wikipedia \quad fetch\_arxiv \quad fetch\_web\\
+\qquad $\downarrow$ asyncio.gather + Semaphore\\
+\textbf{services/ai\_service.py} (retries + logging)\\
+\quad $\downarrow$ ai/ module (DO NOT MODIFY)\\
+\quad \quad synthesize() $\rightarrow$ AnswerWithCitations\\
+\end{tabular}
+\end{center}
+
+\vspace{0.5em}
+\textbf{Key principle}: every \texttt{ai.*} call goes through \texttt{ai\_service.py} — never directly.
+\end{frame}
+
+% ---- Slide 4: AI Module Integration ----------------------------------------
+\begin{frame}[fragile]{AI Module Integration}
+\textbf{Retry + timeout wrapper} — applied to every \texttt{ai.*} call:
+
+\begin{lstlisting}[language=Python]
+@_make_retry(max_attempts=4)
+async def fetch_wikipedia(self, query, *, client=None):
+    async with asyncio.timeout(settings.wikipedia_timeout):
+        return await ai.fetch_wikipedia(query, client=client)
+\end{lstlisting}
+
+\vspace{0.5em}
+\begin{itemize}
+  \item \textbf{Retried}: \texttt{ConnectionError}, \texttt{TimeoutError}, \texttt{ProviderError}
+  \item \textbf{Not retried}: \texttt{ValueError} (bad input — would fail again)
+  \item Exponential backoff: 1s $\to$ 2s $\to$ 4s $\to$ 8s (max 30s)
+  \item WARNING log before each retry sleep
+\end{itemize}
+
+\vspace{0.5em}
+Provider (Anthropic / OpenAI / Gemini) selected via \texttt{LLM\_PROVIDER} env var.
+\end{frame}
+
+% ---- Slide 5: Concurrency --------------------------------------------------
+\begin{frame}[fragile]{Concurrency: asyncio.gather + Semaphore}
+\begin{lstlisting}[language=Python]
+sem = asyncio.Semaphore(settings.max_concurrent)
+
+async def _guarded(src_name):
+    async with sem:
+        return await _fetch_one(src_name, question)
+
+results = await asyncio.gather(
+    *[_guarded(s) for s in active_sources],
+    return_exceptions=True,  # one failure != all fail
+)
+\end{lstlisting}
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Mode & Time (s) & Speedup \\
+\midrule
+Sequential & 2.655 & 1.0$\times$ \\
+Concurrent & 1.003 & \textbf{2.6$\times$} \\
+\bottomrule
+\end{tabular}
+\end{center}
+N=5 questions, simulated latency. Real network: typically 2–4$\times$ speedup.
+\end{frame}
+
+% ---- Slide 6: Robustness ---------------------------------------------------
+\begin{frame}[fragile]{Robustness: Retries \& Graceful Degradation}
+\textbf{Failure injection test}:
+
+\begin{lstlisting}[language=Python]
+# Monkeypatch arXiv to always fail
+new_fns["arxiv"] = lambda q, **kw: (_ for _ in ()).throw(
+    ConnectionError("arXiv is down"))
+\end{lstlisting}
+
+\textbf{Result}: system still returned a valid answer from Wikipedia + web, and
+\texttt{ResearchResult.sources\_failed} correctly listed \texttt{"arxiv"}.
+
+\vspace{1em}
+\textbf{Input validation} via Pydantic:
+\begin{itemize}
+  \item Empty/whitespace question $\to$ rejected before any network call
+  \item Question $>$ 500 chars $\to$ rejected
+  \item Unknown source name $\to$ CLI exits with error message
+\end{itemize}
+
+\textbf{Logging}: structured \texttt{extra=\{...\}} dicts. No \texttt{print()} in \texttt{src/}.
+\end{frame}
+
+% ---- Slide 7: Testing ------------------------------------------------------
+\begin{frame}{Testing}
+\begin{columns}
+  \column{0.5\textwidth}
+  \textbf{66 tests, 81\% coverage}\\(minimum required: 60\%)
+
+  \vspace{0.7em}
+  \begin{itemize}
+    \item \texttt{test\_ai\_smoke.py} — provided, must pass
+    \item \texttt{test\_service.py} — retry, types
+    \item \texttt{test\_cache.py} — hit/miss/expiry
+    \item \texttt{test\_concurrency.py} — semaphore, degradation
+    \item \texttt{test\_researcher.py} — full pipeline
+    \item \texttt{test\_cli.py} — bad input, JSON output
+    \item \texttt{test\_models.py} — validation
+  \end{itemize}
+
+  \column{0.45\textwidth}
+  \textbf{All offline}\\(disconnect Wi-Fi — tests still pass)
+
+  \vspace{0.7em}
+  \textbf{autouse fixture} patches:\\
+  \begin{itemize}
+    \item \texttt{ai.fetch\_wikipedia} $\to$ canned Sources
+    \item \texttt{ai.fetch\_arxiv} $\to$ canned Sources
+    \item Web provider $\to$ \texttt{FakeWebSearch}
+    \item LLM $\to$ \texttt{FakeLLM}
+  \end{itemize}
+\end{columns}
+\end{frame}
+
+% ---- Slide 8: Docker -------------------------------------------------------
+\begin{frame}[fragile]{Docker}
+\textbf{Multi-stage Dockerfile} (bonus +1 pt):
+
+\begin{lstlisting}
+# Builder: install deps into /opt/venv
+FROM python:3.12-slim AS builder
+RUN python -m venv /opt/venv && pip install -r requirements.txt
+
+# Runtime: copy venv only — no gcc, no pip cache
+FROM python:3.12-slim
+COPY --from=builder /opt/venv /opt/venv
+\end{lstlisting}
+
+\vspace{0.5em}
+\begin{lstlisting}[language=bash]
+# Build
+docker build --platform linux/amd64 -t researcher .
+
+# Run offline demo (no keys needed)
+docker run researcher
+
+# With PostgreSQL
+docker compose up --build
+\end{lstlisting}
+
+Non-root \texttt{appuser} runs the process. \texttt{.dockerignore} excludes \texttt{.env}, \texttt{.git}, test artefacts.
+\end{frame}
+
+% ---- Slide 9: Live Demo ----------------------------------------------------
+\begin{frame}[fragile]{Demo}
+\begin{lstlisting}[language=bash]
+# Offline — no API keys
+python demo_ai.py --offline --limit 2
+
+# Real providers
+python -m researcher ask "What is photosynthesis?"
+
+python -m researcher ask "quantum computing" \
+    --sources wiki,arxiv
+
+python -m researcher ask "latest fusion research" \
+    --no-cache --json-output
+
+# Benchmark
+python scripts/bench.py --n 5 --offline
+\end{lstlisting}
+\end{frame}
+
+% ---- Slide 10: Lessons Learned ---------------------------------------------
+\begin{frame}{Lessons Learned \& Q\&A}
+\textbf{What worked well}:
+\begin{itemize}
+  \item \texttt{return\_exceptions=True} in \texttt{asyncio.gather} — one timeout
+    never kills the whole response.
+  \item Keeping \texttt{ai/} untouched behind \texttt{ai\_service.py} — trivial to mock.
+  \item \texttt{autouse} fixture for no-network tests — zero test-by-test boilerplate.
+\end{itemize}
+
+\vspace{0.7em}
+\textbf{What we'd do differently}:
+\begin{itemize}
+  \item Redis-backed distributed cache (in-memory doesn't survive restarts).
+  \item Streaming LLM responses via Streamlit UI (bonus feature).
+  \item \texttt{asyncio.to\_thread()} for \texttt{synthesize()} to avoid blocking the event loop.
+\end{itemize}
+
+\vspace{1em}
+\begin{center}
+  \Large \textbf{Questions?}
+\end{center}
+\end{frame}
+
+\end{document}

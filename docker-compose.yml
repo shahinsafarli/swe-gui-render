@@ -1,0 +1,77 @@
+version: "3.9"
+
+# ============================================================
+# Async Research Assistant — Docker Compose
+#
+# Services:
+#   db        — PostgreSQL 16 (optional, needed only for history)
+#   app       — the research assistant (CLI / demo)
+#   streamlit — ExperimentMice GUI  ← ADDED (additive only)
+#
+# Usage:
+#   docker compose up --build            # start db + streamlit GUI
+#   docker compose up streamlit          # GUI only (db auto-started)
+#   docker compose run app python -m researcher ask "What is AI?"
+#   docker compose run app python scripts/demo.py --offline
+#   docker compose down -v               # stop + remove volumes
+#
+# IMPORTANT: copy .env.example to .env and fill in your API keys
+# before running `docker compose up`.
+# ============================================================
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: researcher
+      # NOTE: Change these credentials in your .env for any non-local deployment.
+      POSTGRES_USER: "${POSTGRES_USER:-researcher_user}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-changeme}"
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-researcher_user} -d researcher"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  app:
+    build: .
+    env_file: .env
+    environment:
+      # Override DATABASE_URL to point at the compose 'db' service.
+      # Compose substitutes the ${POSTGRES_*} vars from .env automatically.
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-researcher_user}:${POSTGRES_PASSWORD:-changeme}@db:5432/researcher"
+    depends_on:
+      db:
+        condition: service_healthy
+    # Default: run the offline demo (no API keys required).
+    # Override on the command line to use real providers:
+    #   docker compose run app python -m researcher ask "What is photosynthesis?"
+    command: python demo_ai.py --offline --limit 5
+
+  # ── ExperimentMice Streamlit GUI ──────────────────────────────────────────
+  # Reuses the same image built from the project Dockerfile.
+  # Shares the same internal network as `db` so DATABASE_URL resolves.
+  # Open http://localhost:8501 after `docker compose up --build`.
+  streamlit:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-researcher_user}:${POSTGRES_PASSWORD:-changeme}@db:5432/researcher"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      streamlit run streamlit_app.py
+      --server.port 8501
+      --server.address 0.0.0.0
+      --server.headless true
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+
+volumes:
+  pgdata:

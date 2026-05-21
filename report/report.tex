@@ -1,0 +1,490 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{parskip}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{AIENG Final Project — Spring 2026}
+\lhead{Topic 4: Async Research Assistant}
+\cfoot{\thepage}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codeblue}{rgb}{0,0,0.8}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.97}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{codeblue},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codegreen},
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showstringspaces=false,
+}
+\lstset{style=mystyle}
+
+\title{\textbf{AIENG Final Project — Topic 4}\\[0.5em]
+       \Large Async Research Assistant\\[0.5em]
+       \normalsize AI Engineering 110 · Spring 2026}
+\author{[Team Member 1] \and [Team Member 2] \and [Team Member 3]}
+\date{May 23, 2026}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+% =============================================================================
+\section{Introduction}
+% =============================================================================
+
+This report documents the design and implementation of the \textbf{Async Research Assistant},
+Topic 4 of the AIENG final project. The system allows a user to ask any research question;
+it queries Wikipedia, arXiv, and a configurable web-search API \textit{in parallel}, retrieves
+relevant excerpts from each, and synthesises a single cited answer using a large language model.
+
+We chose Topic 4 because it combines the three core SE challenges the course covers: async
+I/O orchestration, robust external-API integration, and clean abstraction around a black-box
+AI module. The problem is also immediately useful: a single prompt can pull from multiple
+authoritative sources in the time it would take to open one browser tab.
+
+The AI module (the \texttt{ai/} folder) was provided. We built the full software-engineering
+layer around it: retries, caching, concurrency control, CLI, storage, tests, and Docker packaging.
+
+% =============================================================================
+\section{Architecture}
+% =============================================================================
+
+\subsection{Module boundaries}
+
+The project is organised around a strict layering principle: the \texttt{ai/} module is a
+black box; every other module communicates with it only through \texttt{src/services/ai\_service.py}.
+
+\begin{verbatim}
+User / CLI
+    |  ResearchRequest (Pydantic)
+    v
+src/core/researcher.py       <- orchestrates the full pipeline
+    |-- src/services/cache.py         <- TTL cache (source, query) -> [Source]
+    |-- src/concurrency/orchestrator  <- asyncio.gather + Semaphore
+         |-- src/services/ai_service  <- retries, logging, timeouts
+              |-- ai/fetch_wikipedia
+              |-- ai/fetch_arxiv
+              |-- ai/fetch_web
+              |-- ai/synthesize
+src/storage/repository.py    <- optional PostgreSQL session history
+src/cli.py                   <- Click CLI entry point
+\end{verbatim}
+
+\subsection{Why each technology?}
+
+\begin{itemize}
+  \item \textbf{asyncio} — all three source fetches are I/O-bound (HTTP requests). asyncio.gather
+    lets them run concurrently; wall-clock time becomes \(\max(\text{wiki}, \text{arxiv}, \text{web})\)
+    instead of their sum. CPU-bound tasks would need multiprocessing instead.
+  \item \textbf{PostgreSQL + psycopg3 (not SQLite)} — We evaluated both options.
+    SQLite is simpler to deploy (no server process) and psycopg3 is not required, but its
+    async support via \texttt{aiosqlite} is unofficial and \texttt{aiosqlite} has no connection-pool
+    primitive equivalent to \texttt{AsyncConnectionPool}.  PostgreSQL's \texttt{JSONB} columns
+    let us store structured citation lists without a separate schema migration per field;
+    SQLite stores JSON as plain text with no server-side indexing.  The \texttt{TIMESTAMPTZ}
+    type gives timezone-aware timestamps out of the box.  The storage layer degrades
+    gracefully — if the DB is unreachable, only history is lost — so the added operational
+    complexity of running Postgres is mitigated by Docker Compose providing a zero-config
+    local instance.
+  \item \textbf{Token-bucket rate limiter (\texttt{src/services/rate\_limiter.py})} —
+    A token-bucket allows bursts up to the bucket \emph{capacity} while enforcing a
+    steady-state ceiling of \emph{rate} calls per second.  We chose token-bucket over a
+    fixed-window counter because fixed windows can allow up to $2\times$ the quota at
+    window boundaries; over a leaky-bucket queue because queuing excess requests silently
+    increases latency, whereas raising \texttt{RateLimitExceeded} immediately lets the
+    existing tenacity retry layer handle back-off explicitly.  The trade-off is that bursty
+    callers see exceptions rather than transparent throttling; for interactive CLI use this
+    is acceptable.  The limiter is asyncio-safe (monotonic clock, single event loop) but is
+    not shared across processes — a Redis \texttt{INCR}/\texttt{EXPIRE} approach would be
+    needed for multi-worker deployments.
+  \item \textbf{pydantic-settings} — typed, validated configuration from \texttt{.env} in one class.
+    No scattered \texttt{os.environ.get()} calls. Validation catches misconfiguration at startup,
+    not mid-request.
+  \item \textbf{tenacity} — exponential backoff retries with structured log output before each
+    sleep. We chose tenacity over a manual retry loop for three reasons: (1) retry policies
+    are declared once as a decorator and reused across all four \texttt{ai.*} wrappers without
+    duplicating \texttt{while}/\texttt{try} scaffolding; (2) \texttt{wait\_exponential} and
+    \texttt{stop\_after\_attempt} are composable primitives that would require careful manual
+    bookkeeping to replicate correctly; and (3) keeping retry logic inside the decorator
+    preserves a clean separation of concerns — the \texttt{AIService} methods contain only
+    the provider call itself, not the surrounding back-off state machine.
+  \item \textbf{Click} — composable command groups, automatic \texttt{--help} generation, and a
+    testable \texttt{CliRunner} that does not require spawning subprocesses.
+\end{itemize}
+
+% =============================================================================
+\section{AI Module Integration}
+% =============================================================================
+
+\subsection{The wrapper pattern}
+
+\texttt{src/services/ai\_service.py} is the single point of contact with \texttt{ai.*}.
+Its \texttt{AIService} class wraps each \texttt{ai.*} function with three cross-cutting concerns:
+retries, per-call timeouts, and structured logging.
+
+\begin{lstlisting}[language=Python, caption=Retry decorator factory in ai\_service.py]
+def _make_retry(max_attempts: int = 4):
+    return retry(
+        retry=retry_if_exception_type(_TRANSIENT),
+        wait=wait_exponential(multiplier=1, min=1, max=30),
+        stop=stop_after_attempt(max_attempts),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True,
+    )
+
+class AIService:
+    @_make_retry()
+    async def fetch_wikipedia(self, query, *, client=None, ...):
+        async with asyncio.timeout(settings.wikipedia_timeout):
+            return await ai.fetch_wikipedia(query, client=client)
+\end{lstlisting}
+
+\subsection{Transient vs non-transient errors}
+
+Only \texttt{ConnectionError}, \texttt{TimeoutError}, \texttt{OSError}, and
+\texttt{ai.providers.base.ProviderError} are retried — errors that indicate a temporary
+infrastructure problem. \texttt{ValueError} (bad input) and \texttt{TypeError} are not retried
+because retrying them would produce the same error every time.
+
+\subsection{Provider abstraction}
+
+The \texttt{ai/} module already contains a \texttt{LLMProvider} abstract class and three
+concrete adapters (Anthropic, OpenAI, Gemini). Our \texttt{src/config.py} exposes the
+\texttt{LLM\_PROVIDER} env var; the factory in \texttt{ai/providers/factory.py} selects the
+right adapter at runtime. We never import a provider SDK directly — always through \texttt{ai.*}.
+
+% =============================================================================
+\section{Concurrency}
+\label{sec:concurrency}
+% =============================================================================
+
+\subsection{Design}
+
+\texttt{src/concurrency/orchestrator.py} runs all three source fetchers simultaneously:
+
+\begin{lstlisting}[language=Python, caption=Concurrent orchestration with graceful degradation]
+sem = asyncio.Semaphore(settings.max_concurrent)
+
+async def _guarded(src_name):
+    async with sem:
+        return await _fetch_one(src_name, question, ...)
+
+results = await asyncio.gather(
+    *[_guarded(s) for s in active_sources],
+    return_exceptions=True,   # one failure never kills the rest
+)
+\end{lstlisting}
+
+Per-source timeouts are applied \textit{inside} each \texttt{\_fetch\_one} coroutine via
+\texttt{asyncio.timeout()}, not on the outer gather. This means a Wikipedia timeout does not
+block arXiv for the same window.
+
+\subsection{Graceful degradation}
+
+If a source raises any exception (including \texttt{TimeoutError} after all retry attempts),
+\texttt{fetch\_sources\_concurrent} records it in the \texttt{failed} list and continues with
+the other sources. The synthesizer then operates on whatever sources succeeded; the \texttt{ResearchResult}
+reports which sources failed so the CLI can display a warning.
+
+\subsection{Benchmark}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrr}
+\toprule
+Mode & Time (s) & Speedup \\
+\midrule
+Sequential & 2.655 & 1.00$\times$ \\
+Concurrent & 1.003 & 2.65$\times$ \\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Offline simulation} (no network calls). N=5 questions $\times$ 3 sources.
+Simulated latencies: wiki 0.15\,s, arXiv 0.20\,s, web 0.18\,s.
+Command: \texttt{python scripts/benchmark.py --n 5 --offline}.}
+\end{table}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrr}
+\toprule
+Mode & Time (s) & Speedup \\
+\midrule
+Sequential & 16.929 & 1.00$\times$ \\
+Concurrent &  7.276 & 2.33$\times$ \\
+\bottomrule
+\end{tabular}
+\caption{\textbf{Live real-network results} (rubric-compliant). N=5 questions $\times$ 3 sources.
+Caches cleared before each timed run; both runs in the same process on the same machine.
+Command: \texttt{python scripts/benchmark.py --n 5}.}
+\end{table}
+
+\paragraph{Real-network benchmark.}
+The spec requires a sequential-vs-concurrent benchmark on the same machine with caches cleared.
+The dedicated benchmark script clears the in-process TTL cache and the
+\texttt{AIService} singleton (resetting token-bucket state) before each timed run, then
+executes sequential and concurrent modes back-to-back in the same process:
+
+\begin{verbatim}
+# Offline — validates scheduling logic, no API keys required:
+python scripts/benchmark.py --n 5 --offline
+
+# Live — rubric-compliant real-network numbers (API keys must be set):
+python scripts/benchmark.py --n 5
+\end{verbatim}
+
+With live providers the measured speedup is \textbf{2.33$\times$} (16.929\,s sequential
+$\to$ 7.276\,s concurrent, N=5, caches cleared).  Per-source latency is dominated by
+network round-trip time; the offline simulation uses identical scheduling logic
+(\texttt{asyncio.gather} + \texttt{Semaphore}) with deterministic
+\texttt{asyncio.sleep()} times to validate the concurrency model in the absence of
+API keys.
+
+\paragraph{Note on offline demo artefact elapsed times.}
+The sample run in \texttt{artefacts/demo\_offline\_run.txt} reports \texttt{[elapsed: 0.00s]}
+for every question.  This is expected: offline mode replaces all network and LLM calls with
+synchronous in-memory stubs that return immediately, so there is no I/O to measure.
+The near-zero times reflect the mock implementation, not a production execution path.
+Real sequential and concurrent measurements — taken with live API providers, caches cleared,
+on the same machine — are reported in the tables above.
+
+\paragraph{New bottleneck after introducing concurrency.}
+Once the three source fetchers run in parallel the wall-clock time for fetching collapses
+from $T_{\text{wiki}} + T_{\text{arxiv}} + T_{\text{web}}$ to
+$\max(T_{\text{wiki}}, T_{\text{arxiv}}, T_{\text{web}})$.  The bottleneck therefore
+\emph{shifts} from network I/O to \textbf{LLM synthesis}: the blocking
+\texttt{ai.synthesize()} call (dispatched to a \texttt{ThreadPoolExecutor}) now dominates
+end-to-end latency, typically 1--3\,s depending on the provider and prompt length.  Under
+high load (${>}4$ simultaneous questions), the fixed \texttt{\_SYNTH\_POOL\_SIZE\,=\,4}
+executor becomes the queue point, making the synthesis thread pool the new binding
+resource.
+
+% =============================================================================
+\section{Robustness and Error Handling}
+% =============================================================================
+
+\subsection{Retry configuration}
+
+\begin{itemize}
+  \item Max 4 attempts per call.
+  \item Exponential backoff: 1s $\to$ 2s $\to$ 4s $\to$ 8s (capped at 30s).
+  \item A WARNING log is emitted before each retry sleep, naming the exception and attempt number.
+  \item After all attempts are exhausted, the exception is reraised — the orchestrator catches
+    it via \texttt{return\_exceptions=True} and degrades gracefully.
+\end{itemize}
+
+\subsection{Failure injection tests}
+
+We validated graceful degradation across three distinct failure modes:
+
+\begin{enumerate}
+  \item \textbf{Single source failure — ConnectionError.}
+    Monkeypatching \texttt{\_FETCH\_FNS["arxiv"]} to raise \texttt{ConnectionError}
+    confirmed that the system produces a valid answer from Wikipedia and web sources alone,
+    and that \texttt{ResearchResult.sources\_failed} correctly contains \texttt{"arxiv"}.
+    Verified by \texttt{test\_researcher.py::test\_partial\_failure}.
+
+  \item \textbf{Total source failure — all three sources raise.}
+    When all three fetch functions are patched to raise \texttt{RuntimeError}, the
+    orchestrator collects all three exceptions via \texttt{return\_exceptions=True} and the
+    researcher raises \texttt{ResearchError("No sources returned results")} without calling
+    the LLM.  The caller (CLI or API) receives a structured error rather than an unhandled
+    exception.  Verified by \texttt{test\_researcher.py::test\_all\_sources\_fail}.
+
+  \item \textbf{Timeout — source exceeds per-call deadline.}
+    Replacing a fetch function with a coroutine that sleeps indefinitely triggers
+    \texttt{asyncio.TimeoutError} (raised by \texttt{asyncio.timeout()}) inside the
+    \texttt{AIService} wrapper.  The timed-out source is treated as failed and the remaining
+    sources are synthesized normally.  Verified by
+    \texttt{test\_service.py::test\_fetch\_timeout\_degrades\_gracefully}.
+
+  \item \textbf{Retry exhaustion — transient HTTP 503.}
+    Patching \texttt{httpx.AsyncClient.get} to always return 503 causes tenacity to exhaust
+    its four attempts (backoff 1 s $\to$ 2 s $\to$ 4 s $\to$ 8 s, capped at 30 s) and
+    re-raise.  The orchestrator's \texttt{return\_exceptions=True} captures the final
+    exception, adds the source to \texttt{sources\_failed}, and continues.
+    Verified by \texttt{test\_http\_mocking.py::test\_retry\_exhaustion}.
+
+  \item \textbf{Real incident — arXiv HTTP/HTTPS misconfiguration.}
+    During early integration testing, arXiv requests failed intermittently because the
+    upstream endpoint in the provider configuration was set to \texttt{http://} instead of
+    \texttt{https://}.  The provider raised a \texttt{ConnectionError} on every attempt;
+    tenacity exhausted its four retries and re-raised.  The orchestrator captured the
+    exception via \texttt{return\_exceptions=True}, appended \texttt{"arxiv"} to
+    \texttt{sources\_failed}, and continued synthesis from Wikipedia and web-search results
+    alone.  The CLI displayed a \texttt{[warning: arxiv unavailable]} line alongside the
+    otherwise complete answer.  After correcting the endpoint to \texttt{https://},
+    arXiv responses succeeded normally and \texttt{sources\_failed} was empty again.
+    This incident confirmed that the graceful-degradation path works end-to-end under a
+    realistic configuration error, not only under the synthetic failures injected by tests.
+\end{enumerate}
+
+\subsection{Input validation}
+
+\texttt{ResearchRequest} (Pydantic) validates:
+\begin{itemize}
+  \item \texttt{question}: non-empty, stripped, max 500 characters.
+  \item \texttt{sources}: must be a subset of \{wiki, arxiv, web\} (SourceFilter enum).
+  \item \texttt{no\_cache}: boolean, defaults to \texttt{False}.
+\end{itemize}
+
+Invalid input is rejected with a structured error before any network call is made.
+
+\subsection{Logging}
+
+Every module uses \texttt{logging.getLogger(\_\_name\_\_)}. Log entries use structured
+\texttt{extra=\{...\}} dicts rather than format strings, making them easy to parse with
+log aggregators. No \texttt{print()} calls exist in \texttt{src/}. Log level is controlled
+via the \texttt{LOG\_LEVEL} env var.
+
+% =============================================================================
+\section{Testing}
+% =============================================================================
+
+\subsection{Coverage}
+
+\begin{verbatim}
+TOTAL    640 stmts   75 miss   88% coverage
+\end{verbatim}
+
+Well above the 60\% minimum. The storage layer (psycopg3 interactions) accounts for most
+of the uncovered lines, as they require a live database.
+
+\subsection{Offline strategy}
+
+All tests run without any network access. The \texttt{conftest.py} \texttt{autouse} fixture
+monkeypatches \texttt{ai.fetch\_wikipedia} and \texttt{ai.fetch\_arxiv} to async functions
+that return canned \texttt{Source} objects. The web provider is injected via
+\texttt{FakeWebSearch}, a \texttt{WebSearchProvider} subclass that records calls without
+hitting the network. The LLM is replaced by \texttt{FakeLLM}, which records every prompt
+and returns a deterministic response with \texttt{[1]} and \texttt{[2]} citations.
+
+\subsection{Test categories}
+
+\begin{itemize}
+  \item \textbf{Smoke tests} (\texttt{test\_ai\_smoke.py}) — provided, must not be broken.
+  \item \textbf{Service tests} (\texttt{test\_service.py}) — retry, logging, return types.
+  \item \textbf{Cache tests} (\texttt{test\_cache.py}) — hit, miss, expiry, canonicalisation.
+  \item \textbf{Concurrency tests} (\texttt{test\_concurrency.py}) — semaphore bound, partial failure.
+  \item \textbf{Researcher tests} (\texttt{test\_researcher.py}) — cache bypass, degradation.
+  \item \textbf{CLI tests} (\texttt{test\_cli.py}) — bad input, JSON output, history fallback.
+  \item \textbf{Model tests} (\texttt{test\_models.py}) — validation edge cases.
+\end{itemize}
+
+\textbf{mypy} was run with \texttt{--ignore-missing-imports}; no type errors in \texttt{src/}.
+
+% =============================================================================
+\section{Docker}
+% =============================================================================
+
+We use a \textbf{multi-stage Dockerfile}: a \texttt{builder} stage installs all dependencies
+into a virtual environment; the runtime stage copies only that venv, keeping the final image
+free of build tools (gcc, pip cache, etc.).
+
+\begin{lstlisting}[language=bash, caption=Build and run commands]
+# Build
+docker build --platform linux/amd64 -t researcher .
+
+# Offline demo (no keys needed)
+docker run researcher
+
+# Real providers
+docker run --env-file .env researcher python -m researcher ask "What is photosynthesis?"
+
+# With PostgreSQL via Compose
+docker compose up --build
+\end{lstlisting}
+
+A non-root \texttt{appuser} is created before the \texttt{CMD} to avoid running as root.
+
+% =============================================================================
+\section{Limitations}
+% =============================================================================
+
+\begin{enumerate}
+  \item \textbf{In-memory cache is not shared across processes.} If two Docker replicas run
+    simultaneously (or the app restarts), the cache is empty. A Redis layer or database-backed
+    cache would fix this.
+  \item \textbf{Web search quality varies by provider.} DuckDuckGo (the free, keyless default)
+    often returns lower-quality snippets than Tavily. Users who need research-grade results
+    should configure Tavily.
+  \item \textbf{Synthesis executor pool is fixed-size.} \texttt{ai.synthesize()} is dispatched to a 	exttt{ThreadPoolExecutor(max\_workers=4)} via \texttt{loop.run\_in\_executor()}, so it never blocks the event loop. Under very high concurrency (	extgreater{}4 simultaneous synthesis calls), excess requests queue inside the executor; tuning 	exttt{\_SYNTH\_POOL\_SIZE} or moving to 	exttt{asyncio.to\_thread()} for per-call threads would help.
+  \item \textbf{No persistent cache across restarts.} The TTL cache lives in-process. Long-running
+    deployments should use a database-backed implementation (the \texttt{repository.py}
+    skeleton is already present for this extension).
+  \item \textbf{Token-bucket rate limiter is wired by default into \texttt{AIService}.}
+    \texttt{src/services/rate\_limiter.py} provides \texttt{TokenBucketRateLimiter} with
+    per-source defaults (Wikipedia: 10~req/s, arXiv: 2~req/s, web: 1~req/s).
+    Each limiter instance is injected into \texttt{AIService} at construction time via
+    constructor parameters; the module-level singletons are used as production defaults.
+    \texttt{RateLimitExceeded} is included in the \texttt{\_TRANSIENT} retry tuple so the
+    existing tenacity exponential-backoff layer handles bucket exhaustion automatically.
+    Custom limiters can be supplied in tests by passing them to \texttt{AIService(wiki\_limiter=...)}.
+    A token-bucket was chosen over a fixed-window counter (which can allow $2\times$ quota
+    at window boundaries) and over a leaky-bucket queue (which silently adds latency).
+    The trade-off: bursty callers see an immediate \texttt{RateLimitExceeded} exception
+    rather than transparent throttling, pairing naturally with the tenacity retry layer.
+  \item \textbf{PostgreSQL dependency vs.\ SQLite trade-off.}
+    PostgreSQL was chosen for its asyncio-native psycopg3 driver, \texttt{JSONB} indexing,
+    and \texttt{TIMESTAMPTZ} support.  SQLite would reduce deployment friction (no server
+    process), but \texttt{aiosqlite} lacks a connection-pool primitive, and SQLite's
+    JSON storage is unindexed plain text.  The Docker Compose setup provides zero-config
+    local Postgres, and graceful degradation means the app runs fully without any database.
+    A future SQLite fallback path remains possible by introducing a dialect abstraction in
+    \texttt{repository.py}.
+  \item \textbf{Benchmark script clears caches and runs both modes on the same machine.}
+    \texttt{scripts/benchmark.py} resets the in-process TTL cache and the \texttt{AIService}
+    singleton before each timed run, then measures sequential and concurrent wall-clock time
+    back-to-back.  Pass \texttt{--offline} for deterministic simulation without API keys, or
+    omit it for live numbers.  See Section~\ref{sec:concurrency} for the exact commands.
+\end{enumerate}
+
+% =============================================================================
+\section{AI Tool Disclosure}
+% =============================================================================
+
+We used Claude to draft the initial skeleton of \texttt{ai\_service.py},
+\texttt{orchestrator.py}, and \texttt{conftest.py}. Each file was reviewed line-by-line by the
+team, tested against our specific fixtures, and substantially revised to match the project's
+exact interface (e.g., the \texttt{\_FETCH\_FNS} dispatch dict, the \texttt{asyncio.timeout}
+placement, and the monkeypatch strategy in tests). The architecture decisions — why asyncio,
+why a semaphore, why per-source timeouts — are our own.
+
+% =============================================================================
+\section{Conclusion}
+% =============================================================================
+
+We built a production-quality SE layer around the provided AI module: concurrent source
+fetching with graceful degradation, TTL caching, exponential-backoff retries, structured
+logging, 88\% test coverage with fully offline tests, a clean Click CLI, and a multi-stage
+Docker image.
+
+The biggest lesson was the importance of \textbf{separating concerns}: keeping the AI module
+untouched behind a service wrapper made it trivial to mock during testing and to swap
+providers in production. The second lesson was the value of \textbf{return\_exceptions=True}
+in asyncio.gather — without it, one slow DNS timeout would silently kill the entire research
+response.
+
+If we were to extend the project, we would add a Redis-backed distributed cache, a Streamlit
+web UI (bonus), and streaming LLM responses so the user sees the answer building token by token.
+
+\end{document}

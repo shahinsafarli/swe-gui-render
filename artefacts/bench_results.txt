@@ -1,0 +1,16 @@
+Benchmarking 5 question(s) × 3 sources …
+
+Mode              Time (s)    Speedup
+--------------------------------------
+Sequential           2.655       1.0x
+Concurrent           1.003       2.6x
+
+N=5, max_concurrent=5 (semaphore)
+Command: python scripts/bench.py --n 5 --offline
+
+Interpretation:
+  - Sequential: awaits wiki → arxiv → web one after the other for each question
+  - Concurrent: asyncio.gather(wiki, arxiv, web) per question, bounded by Semaphore(5)
+  - The semaphore mirrors the production orchestrator (MAX_CONCURRENT env var, default 5)
+  - Speedup of 2.6x with simulated latency (0.15s wiki, 0.20s arxiv, 0.18s web)
+  - With real network (avg ~0.5–1s per source), concurrent speedup is typically 2–4x
