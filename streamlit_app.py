@@ -60,7 +60,7 @@ def _make_logo_svg(b64: str | None, size: int = 128, ring_width: int = 4) -> str
             f'<text x="{half}" y="{half + 10}" text-anchor="middle" font-size="{size // 3}">🐭</text>'
         )
 
-    return f"""<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    return f"""<svg width="100%" height="100%" viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="max-width:{size}px; aspect-ratio: 1/1;">
   <defs>
     <clipPath id="clip{size}">
       <circle cx="{half}" cy="{half}" r="{r_img}"/>
@@ -116,6 +116,16 @@ def _inject_theme() -> None:
                 radial-gradient(ellipse 60% 50% at 90% 100%, rgba(184,164,212,0.08) 0%, transparent 55%),
                 linear-gradient(165deg, #faf8f5 0%, #f3f8f4 40%, #f8f3fa 75%, #faf8f5 100%) !important;
             min-height: 100vh;
+        }
+
+        /* Streamlit main block container padding optimization for mobile */
+        [data-testid="stMainBlockContainer"] {
+            padding: 2rem 1rem !important;
+        }
+        @media (min-width: 768px) {
+            [data-testid="stMainBlockContainer"] {
+                padding: 4rem 3rem !important;
+            }
         }
 
         [data-testid="stSidebar"] {
@@ -198,35 +208,77 @@ def _inject_theme() -> None:
 
         /* --- CUSTOM RENDERED BLOCKS --- */
         
-        /* Hero */
+        /* Responsive Hero */
         .em-hero {
             display: flex;
+            flex-direction: column;
             align-items: center;
-            gap: 2rem;
-            padding: 2rem 2.5rem;
+            text-align: center;
+            gap: 1.25rem;
+            padding: 1.5rem;
             margin-bottom: 1.5rem;
             background: var(--em-paper);
             border-radius: var(--em-radius-lg);
             border: 1px solid var(--em-border);
             box-shadow: var(--em-shadow-lg);
         }
+        
+        @media (min-width: 768px) {
+            .em-hero {
+                flex-direction: row;
+                text-align: left;
+                align-items: center;
+                gap: 2rem;
+                padding: 2rem 2.5rem;
+            }
+        }
+        
+        .em-hero-logo-container {
+            flex-shrink: 0;
+            width: 96px;
+            height: 96px;
+        }
+        @media (min-width: 768px) {
+            .em-hero-logo-container {
+                width: 128px;
+                height: 128px;
+            }
+        }
+        
+        .em-hero-text {
+            flex: 1;
+        }
+
         .em-hero-text h1 {
-            margin: 0 0 0.3rem 0 !important;
-            font-size: 2.6rem !important;
+            margin: 0 0 0.4rem 0 !important;
+            font-size: 1.8rem !important;
             font-weight: 700 !important;
             letter-spacing: -0.03em;
-            line-height: 1.1;
+            line-height: 1.15;
             background: linear-gradient(135deg, var(--em-green-dark) 20%, var(--em-green-light) 80%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
         }
+        @media (min-width: 768px) {
+            .em-hero-text h1 {
+                font-size: 2.6rem !important;
+                margin: 0 0 0.3rem 0 !important;
+            }
+        }
+
         .em-tagline {
             color: var(--em-muted) !important;
-            font-size: 1.05rem;
+            font-size: 0.95rem;
             margin: 0;
-            line-height: 1.55;
+            line-height: 1.5;
         }
+        @media (min-width: 768px) {
+            .em-tagline {
+                font-size: 1.05rem;
+            }
+        }
+
         .em-badge {
             display: inline-flex;
             align-items: center;
@@ -234,7 +286,7 @@ def _inject_theme() -> None:
             margin-top: 0.8rem;
             padding: 0.3rem 0.9rem;
             border-radius: 999px;
-            font-size: 0.73rem;
+            font-size: 0.7rem;
             font-weight: 700;
             letter-spacing: 0.07em;
             text-transform: uppercase;
@@ -267,39 +319,56 @@ def _inject_theme() -> None:
         .em-answer-box {
             background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(243,248,244,0.95));
             border-radius: var(--em-radius);
-            padding: 1.75rem 2rem;
+            padding: 1.25rem 1.5rem;
             border: 1px solid rgba(86,163,121,0.2);
             box-shadow: var(--em-shadow);
-            line-height: 1.75;
+            line-height: 1.65;
             color: var(--em-ink);
-            font-size: 1.02rem;
+            font-size: 0.98rem;
             margin: 0.75rem 0;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+        @media (min-width: 768px) {
+            .em-answer-box {
+                padding: 1.75rem 2rem;
+                font-size: 1.02rem;
+                line-height: 1.75;
+            }
         }
 
-        /* Citations */
+        /* Citations - Compact styling on Mobile */
         .em-citation {
             display: flex;
             align-items: flex-start;
-            gap: 0.75rem;
-            padding: 0.75rem 1rem;
+            gap: 0.6rem;
+            padding: 0.6rem 0.8rem;
             border-radius: var(--em-radius-sm);
             border: 1px solid var(--em-border);
             background: var(--em-cream);
             margin: 0.4rem 0;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+        @media (min-width: 768px) {
+            .em-citation {
+                gap: 0.75rem;
+                padding: 0.75rem 1rem;
+            }
         }
         .em-citation-num {
             flex-shrink: 0;
-            width: 26px; height: 26px;
+            width: 24px; height: 24px;
             border-radius: 50%;
             background: linear-gradient(135deg, var(--em-green), var(--em-green-light));
             color: #fff;
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             font-weight: 700;
             display: flex; align-items: center; justify-content: center;
         }
         .em-citation-body { flex: 1; min-width: 0; }
         .em-citation-origin {
-            font-size: 0.72rem;
+            font-size: 0.68rem;
             font-weight: 700;
             letter-spacing: 0.06em;
             text-transform: uppercase;
@@ -307,14 +376,21 @@ def _inject_theme() -> None:
             margin-bottom: 0.15rem;
         }
         .em-citation-title {
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             font-weight: 500;
             color: var(--em-ink);
             text-decoration: none;
+            display: block;
+        }
+        @media (min-width: 768px) {
+            .em-citation-title {
+                font-size: 0.9rem;
+                display: inline;
+            }
         }
         .em-citation-title:hover { color: var(--em-green); }
 
-        /* Elapsed */
+        /* Elapsed status bubble */
         .em-elapsed {
             display: inline-flex; align-items: center; gap: 0.4rem;
             padding: 0.3rem 0.8rem;
@@ -327,7 +403,7 @@ def _inject_theme() -> None:
             margin-top: 0.75rem;
         }
 
-        /* History meta row */
+        /* History metadata layouts */
         .em-history-meta {
             display: flex;
             align-items: center;
@@ -340,16 +416,16 @@ def _inject_theme() -> None:
             flex-wrap: wrap;
         }
 
-        /* Empty state */
+        /* Empty state block */
         .em-empty {
             text-align: center;
-            padding: 3rem 2rem;
+            padding: 3rem 1.5rem;
             color: var(--em-muted);
         }
-        .em-empty .em-empty-icon { font-size: 3rem; margin-bottom: 0.75rem; }
-        .em-empty p { font-size: 0.95rem; line-height: 1.6; }
+        .em-empty .em-empty-icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+        .em-empty p { font-size: 0.9rem; line-height: 1.5; }
 
-        /* Sidebar info key-values */
+        /* Sidebar content configurations */
         .em-sidebar-section {
             font-family: 'Fraunces', Georgia, serif !important;
             font-size: 0.85rem;
@@ -384,20 +460,26 @@ def _inject_theme() -> None:
         .em-dot-ok  { background: var(--em-green-light); }
         .em-dot-off { background: var(--em-amber); }
 
-        /* Tabs layout tracking */
+        /* Tabs element tracking */
         .stTabs [data-baseweb="tab-list"] {
-            gap: 6px;
+            gap: 4px;
             background: transparent;
             border-bottom: 2px solid var(--em-border);
         }
         .stTabs [data-baseweb="tab"] {
             border-radius: 12px 12px 0 0;
-            padding: 0.5rem 1.3rem;
+            padding: 0.4rem 0.9rem;
             font-weight: 600;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             color: var(--em-muted);
             background: transparent;
             margin-bottom: -2px;
+        }
+        @media (min-width: 768px) {
+            .stTabs [data-baseweb="tab"] {
+                padding: 0.5rem 1.3rem;
+                font-size: 0.9rem;
+            }
         }
         .stTabs [aria-selected="true"] {
             background: var(--em-paper) !important;
@@ -409,10 +491,16 @@ def _inject_theme() -> None:
         [data-testid="stExpander"] summary p,
         .streamlit-expanderHeader p {
             font-family: 'DM Sans', system-ui, sans-serif !important;
-            font-size: 0.95rem !important;
+            font-size: 0.9rem !important;
             font-weight: 500 !important;
             color: var(--em-ink) !important;
             opacity: 1 !important;
+        }
+        @media (min-width: 768px) {
+            [data-testid="stExpander"] summary p,
+            .streamlit-expanderHeader p {
+                font-size: 0.95rem !important;
+            }
         }
 
         #MainMenu { visibility: hidden; }
@@ -467,10 +555,11 @@ def _render_header() -> None:
     st.markdown(
         f"""
         <div class="em-hero">
-            <img src="data:image/svg+xml;base64,{svg_data}"
-                 width="128" height="128"
-                 style="flex-shrink:0;border-radius:50%;display:block;"
-                 alt="ExperimentMice logo"/>
+            <div class="em-hero-logo-container">
+                <img src="data:image/svg+xml;base64,{svg_data}"
+                     style="width:100%; height:100%; border-radius:50%; display:block; object-fit:cover;"
+                     alt="ExperimentMice logo"/>
+            </div>
             <div class="em-hero-text">
                 <h1>ExperimentMice</h1>
                 <p class="em-tagline">
@@ -493,10 +582,9 @@ def _render_sidebar(b64: str | None) -> None:
         svg_sm = _make_logo_svg(b64, size=90, ring_width=4)
         svg_sm_data = base64.b64encode(svg_sm.encode()).decode()
         st.markdown(
-            f"""<div style="text-align:center;margin-bottom:0.75rem;">
+            f"""<div style="text-align:center;margin-bottom:0.75rem; width:100%; max-width:90px; margin-left:auto; margin-right:auto;">
             <img src="data:image/svg+xml;base64,{svg_sm_data}"
-                 width="90" height="90"
-                 style="border-radius:50%;display:inline-block;"
+                 style="width:100%; height:auto; border-radius:50%; display:inline-block;"
                  alt="logo"/>
             </div>""",
             unsafe_allow_html=True,
@@ -593,7 +681,8 @@ def _render_ask_tab() -> None:
         label_visibility="collapsed",
     )
 
-    col1, col2, col3 = st.columns([2.2, 1, 1.1])
+    # Use container_width behaviors on layout parts to fold nicely on dynamic viewports
+    col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
         source_labels = st.multiselect(
             "Sources (empty = all)",
@@ -601,8 +690,10 @@ def _render_ask_tab() -> None:
             default=["wiki", "arxiv", "web"],
         )
     with col2:
+        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True) # visual anchor space for alignment
         no_cache = st.checkbox("Bypass cache", value=False)
     with col3:
+        st.markdown("<div style='height: 5px;'></div>", unsafe_allow_html=True)
         run_clicked = st.button("Run research", type="primary", use_container_width=True)
 
     if run_clicked:
